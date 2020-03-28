@@ -11,10 +11,13 @@ import numpy as np
 data = {}
 
 """
-1. Easier way to upload and download data
+1. Automated way of downloading data & uploading scripts to the Raspberry Pi (scp etc.)
 2. Log times of interest
 3. Plot data
-  3.1. Live data plotting
+  - Live data plotting
+4. Try to use this for detecting other kinds of vibrations, like walking
+5. Look into ways of increasing sensitivity
+  - Like putting it on a stick that'll act as an oscillator
 """
 
 def calc_mag(data):

@@ -35,13 +35,10 @@ def socket_thread():
 
         bytes_recieved = 0
         buffer = b''
-        counter = 0
-
-        start_time = datetime.datetime.utcnow()
 
         while True:
           try:
-            received = conn.recv(15000)
+            received = conn.recv(18000)
             if not received: continue
           except socket.timeout:
             print('timeout')
@@ -66,9 +63,8 @@ def socket_thread():
               y *= 0.00006103515
               z *= 0.00006103515
 
-              if (i / 3) % 5 == 0:
-                f.write('%sZ: %f, %f, %f\n' % (t.isoformat(sep=' ', timespec='milliseconds'), x, y, z))
-                f.flush()
+              f.write('%sZ: %f, %f, %f\n' % (t.isoformat(sep=' ', timespec='milliseconds'), x, y, z))
+              f.flush()
 
             print('Written to file.')
 

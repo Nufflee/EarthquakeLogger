@@ -8,10 +8,6 @@
 #include "secrets.h"
 #include "soc/rtc_wdt.h"
 
-/*
-1. auto reconnect
-*/
-
 LSM9DS1 imu;
 
 WiFiClient client;
@@ -23,6 +19,7 @@ void socketReceiveTask(void *);
 void ntpTask(void *);
 void sendBufferTask(void *);
 void sendBuffer(int16_t *, size_t);
+void accelInterruptHandler();
 
 void setup()
 {
@@ -41,10 +38,7 @@ void setup()
       ;
   }
 
-  imu.configInt(XG_INT1, INT_DRDY_XL, INT_ACTIVE_LOW, INT_PUSH_PULL);
-
   pinMode(12, OUTPUT);
-  pinMode(13, INPUT_PULLUP);
 
   WiFi.begin(ssid, password);
 
@@ -72,24 +66,51 @@ void setup()
 
   imu.calibrate(true);
 
-  xTaskCreate(readAccelTask, "readAccelTask", 20000, NULL, 5, NULL);
-  xTaskCreate(socketReceiveTask, "socketReceiveTask", 20000, NULL, 3, NULL);
-  xTaskCreate(sendBufferTask, "sendBufferTask", 20000, NULL, 3, NULL);
+  xTaskCreatePinnedToCore(readAccelTask, "readAccelTask", 20000, NULL, 10, NULL, 0);
+  xTaskCreatePinnedToCore(socketReceiveTask, "socketReceiveTask", 20000, NULL, 4, NULL, 1);
+  xTaskCreatePinnedToCore(sendBufferTask, "sendBufferTask", 20000, NULL, 3, NULL, 1);
   xTaskCreate(ntpTask, "ntpTask", 20000, NULL, 2, NULL);
 }
 
-int16_t buffer[1000 * 9];
+#define BUFFER_SIZE 1000 * 9
+
+int16_t buffer1[BUFFER_SIZE];
+int16_t buffer2[BUFFER_SIZE];
+int16_t *buffer = buffer1;
+int16_t *send_buffer;
+
+bool newDataToSend = false;
+
 int i = 0;
 
 // 12 bytes + 3*2 bytes = 18 bytes = 9 int16_ts
 
 void readAccelTask(void *)
 {
-  int last_time = millis();
-
   while (true)
   {
-    if (imu.accelAvailable())
+    if (i >= BUFFER_SIZE)
+    {
+      if (buffer == buffer1)
+      {
+        send_buffer = buffer1;
+        buffer = buffer2;
+
+        printf("Buffer changed to buffer2!\n");
+      }
+      else
+      {
+        send_buffer = buffer2;
+        buffer = buffer1;
+
+        printf("Buffer changed to buffer1!\n");
+      }
+
+      i = 0;
+      newDataToSend = true;
+    }
+
+    if (imu.accelAvailable() && i < BUFFER_SIZE)
     {
       imu.readAccel();
 
@@ -106,36 +127,21 @@ void readAccelTask(void *)
   }
 }
 
-// 7:13 - quake
-
-int16_t *send_buffer[1000 * 9];
-
 void sendBufferTask(void *)
 {
   while (true)
   {
-    if (i + 1 >= 9000)
+    if (newDataToSend)
     {
-      memcpy(send_buffer, buffer, sizeof(buffer));
+      int bytesSent = client.write((uint8_t *)send_buffer, BUFFER_SIZE * sizeof(uint16_t));
 
-      i = 0;
+      printf("Sent %d bytes to the host!\n", bytesSent);
 
-      int bytesSent = client.write((uint8_t *)send_buffer, sizeof(buffer));
-
-      memset(send_buffer, 0, sizeof(buffer));
-
-      printf("\nSent %d bytes to the host!\n", bytesSent);
+      newDataToSend = false;
     }
 
-    vTaskDelay(1);
+    vTaskDelay(250);
   }
-
-  /*
-  for (int i = 0; i < 3000; i += 3)
-  {
-    printf("x = %d, y = %d, z = %d\n", buffer[i], buffer[i + 1], buffer[i + 2]);
-  }
-  */
 }
 
 void ntpTask(void *)
@@ -154,20 +160,16 @@ void socketReceiveTask(void *)
   {
     if (!client.connected() || !WiFi.isConnected())
     {
+      printf("disconnected\n");
+
       ESP.restart();
     }
 
-    String recieved = client.readStringUntil('\n');
-
-    if (recieved == "restart")
-    {
-      ESP.restart();
-    }
-
-    vTaskDelay(1);
+    vTaskDelay(1000);
   }
 }
 
 void loop()
 {
+  vTaskDelay(2000);
 }
